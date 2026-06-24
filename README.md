@@ -83,7 +83,7 @@
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/YOUR_USERNAME/project-management-frontend.git
+git clone https://github.com/aditya1282/project-management-frontend.git
 
 # 2. Navigate to the project directory
 cd project-management-frontend
