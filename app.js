@@ -175,6 +175,19 @@ function setupRealtimeProjects() {
       render();
     }, (err) => {
       console.error("Firestore subscription error:", err);
+      if (err.code === 'permission-denied' || err.message?.includes('permission-denied') || err.message?.includes('permissions')) {
+        showCustomConfirm(
+          "Your Cloud Firestore security rules are blocking reads/writes. To resolve this: 1) Go to Firebase Console > Firestore Database. 2) Click the 'Rules' tab. 3) Replace the rules to allow authenticated access (e.g., allow read, write: if request.auth != null;). 4) Click 'Publish'.",
+          "Configure Firestore security rules to allow read/write access.",
+          "Firestore Permissions Required"
+        );
+      } else {
+        showCustomConfirm(
+          "Unable to connect to Cloud Firestore. Please ensure: 1) You have clicked 'Create database' under Firestore Database in the Firebase Console. 2) Your database is in the correct region. 3) You are connected to the internet.",
+          "Make sure Firestore is enabled in your Firebase Project.",
+          "Firestore Database Connection Error"
+        );
+      }
       showToast("Sync Offline", "Could not fetch projects from database.", "error");
     });
 }
