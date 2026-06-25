@@ -325,7 +325,15 @@ function initAuth() {
       }
     } catch (err) {
       console.error("Auth action failed:", err);
-      showToast("Access Denied", err.message || "Authentication failed. Check your password.", "error");
+      if (err.code === 'auth/operation-not-allowed' || err.message?.includes('operation-not-allowed')) {
+        showCustomConfirm(
+          "Email/Password sign-in is not enabled in your Firebase Project Console. To activate: 1) Open your Firebase Console. 2) Go to Build > Authentication > Sign-in method. 3) Click 'Add new provider' and select 'Email/Password'. 4) Toggle 'Enable' and click Save.",
+          "Enable Email/Password Sign-In in Firebase Console to use this feature.",
+          "Firebase Auth Action Required"
+        );
+      } else {
+        showToast("Access Denied", err.message || "Authentication failed. Check your password.", "error");
+      }
     }
   });
 
@@ -368,7 +376,15 @@ function initAuth() {
       }
     } catch (err) {
       console.error("Demo login failed:", err);
-      showToast("Demo Access Offline", err.message || "Could not log into demo mode.", "error");
+      if (err.code === 'auth/operation-not-allowed' || err.message?.includes('operation-not-allowed')) {
+        showCustomConfirm(
+          "Email/Password sign-in is not enabled in your Firebase Project Console. To activate: 1) Open your Firebase Console. 2) Go to Build > Authentication > Sign-in method. 3) Click 'Add new provider' and select 'Email/Password'. 4) Toggle 'Enable' and click Save.",
+          "Enable Email/Password Sign-In in Firebase Console to use this feature.",
+          "Firebase Auth Action Required"
+        );
+      } else {
+        showToast("Demo Access Offline", err.message || "Could not log into demo mode.", "error");
+      }
     }
   });
 
