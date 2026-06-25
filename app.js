@@ -208,9 +208,12 @@ function setAuthMode(mode) {
   const toggleMode = document.querySelector("#authToggleMode");
   const rememberGroup = document.querySelector("#authRememberGroup");
 
+  const roleGroup = document.querySelector("#authRoleGroup");
+
   if (mode === "signup") {
     nameGroup.style.display = "block";
     nameInput.required = true;
+    roleGroup.style.display = "block";
     emailLabel.textContent = "Email address";
     title.textContent = "Sign up";
     submitBtn.textContent = "Sign up";
@@ -221,6 +224,7 @@ function setAuthMode(mode) {
   } else {
     nameGroup.style.display = "none";
     nameInput.required = false;
+    roleGroup.style.display = "none";
     emailLabel.textContent = "Email address or user name";
     title.textContent = "Log in";
     submitBtn.textContent = "Log in";
@@ -229,6 +233,68 @@ function setAuthMode(mode) {
     toggleText.textContent = "Don't have an account?";
     toggleMode.textContent = "Sign up";
   }
+}
+
+async function saveUserRole(uid, email, name, role) {
+  const collectionName = role === 'manager' ? 'managers' : 'employees';
+  await window.db.collection(collectionName).doc(uid).set({
+    uid: uid,
+    email: email,
+    name: name,
+    role: role,
+    createdAt: new Date().toISOString()
+  });
+}
+
+async function fetchUserRole(uid) {
+  if (uid === 'mock-manager-id') {
+    return 'manager';
+  }
+  // Check managers collection first
+  try {
+    let doc = await window.db.collection('managers').doc(uid).get();
+    if (doc.exists) {
+      return 'manager';
+    }
+  } catch (e) {
+    console.warn("Checking managers collection failed, trying employees...", e);
+  }
+
+  // Check employees collection
+  try {
+    let doc = await window.db.collection('employees').doc(uid).get();
+    if (doc.exists) {
+      return 'employee';
+    }
+  } catch (e) {
+    console.error("Error reading employees collection:", e);
+  }
+
+  return null;
+}
+
+function promptUserRole(uid, email, name) {
+  return new Promise((resolve) => {
+    const dialog = document.getElementById("roleSelectionDialog");
+    const chooseManager = document.getElementById("chooseManagerBtn");
+    const chooseEmployee = document.getElementById("chooseEmployeeBtn");
+
+    const selectRole = async (role) => {
+      try {
+        await saveUserRole(uid, email, name, role);
+        dialog.close();
+        resolve(role);
+      } catch (err) {
+        console.error("Failed to save role:", err);
+        showToast("Error", "Failed to save selected role. Please try again.", "error");
+      }
+    };
+
+    chooseManager.onclick = () => selectRole('manager');
+    chooseEmployee.onclick = () => selectRole('employee');
+
+    dialog.showModal();
+  });
 }
 
 // Initialize Auth listeners and buttons
@@ -242,19 +308,30 @@ function initAuth() {
   }
 
   // Register state change listener
-  window.auth.onAuthStateChanged((user) => {
+  window.auth.onAuthStateChanged(async (user) => {
     if (user) {
+      const name = user.displayName || user.email.split('@')[0];
+      let role = await fetchUserRole(user.uid);
+      if (!role) {
+        role = await promptUserRole(user.uid, user.email, name);
+      }
+
       currentUser = {
         id: user.uid,
         email: user.email,
-        name: user.displayName || user.email.split('@')[0],
-        picture: user.photoURL || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user.email.split('@')[0])}`
+        name: name,
+        role: role,
+        picture: user.photoURL || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}`
       };
       
       // Update DOM UI profile
-      document.querySelector("#userName").textContent = currentUser.name;
+      document.querySelector("#userName").textContent = `${currentUser.name} (${role === 'manager' ? '👑 Manager' : '👤 Employee'})`;
       document.querySelector("#userEmail").textContent = currentUser.email;
       document.querySelector("#userAvatar").src = currentUser.picture;
+
+      // Hide Manager features for Employees!
+      const newProjBtn = document.querySelector("#newProjectBtn");
+      if (newProjBtn) newProjBtn.style.display = role === 'manager' ? "" : "none";
       
       // View Transition
       document.querySelector("#loginScreen").style.display = "none";
@@ -316,8 +393,10 @@ function initAuth() {
     try {
       if (authMode === "signup") {
         const name = document.querySelector("#authName").value.trim();
+        const role = document.querySelector("#authRole").value;
         const cred = await window.auth.createUserWithEmailAndPassword(email, password);
         await cred.user.updateProfile({ displayName: name });
+        await saveUserRole(cred.user.uid, email, name, role);
         showToast("Account Created", `Welcome, ${name}!`, "success");
       } else {
         await window.auth.signInWithEmailAndPassword(email, password);
@@ -368,6 +447,7 @@ function initAuth() {
             // Auto register the user in Firebase project
             const cred = await window.auth.createUserWithEmailAndPassword('demo@projectflow.com', 'demo1234');
             await cred.user.updateProfile({ displayName: 'Demo Manager' });
+            await saveUserRole(cred.user.uid, 'demo@projectflow.com', 'Demo Manager', 'manager');
             showToast("Demo Environment Configured", "Registered and signed in.", "success");
           } else {
             throw err;

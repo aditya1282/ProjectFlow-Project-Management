@@ -833,7 +833,8 @@ textarea { resize: vertical; }
 
 .auth-form input[type="text"],
 .auth-form input[type="email"],
-.auth-form input[type="password"] {
+.auth-form input[type="password"],
+.auth-form select {
   background: var(--surface);
   border: 1px solid var(--glass-border);
   color: var(--ink);
@@ -846,7 +847,8 @@ textarea { resize: vertical; }
 
 .auth-form input[type="text"]:focus,
 .auth-form input[type="email"]:focus,
-.auth-form input[type="password"]:focus {
+.auth-form input[type="password"]:focus,
+.auth-form select:focus {
   outline: none;
   border-color: var(--accent);
   background: var(--surface-hover);

@@ -145,6 +145,15 @@ class MockDocumentReference {
     this.collectionRef = collectionRef;
   }
 
+  async get() {
+    const list = this.collectionRef._read();
+    const item = list.find(item => item.id === this.id);
+    return {
+      exists: !!item,
+      data: () => item
+    };
+  }
+
   async set(data) {
     const list = this.collectionRef._read();
     const index = list.findIndex(item => item.id === this.id);

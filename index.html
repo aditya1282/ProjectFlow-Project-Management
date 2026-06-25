@@ -34,6 +34,15 @@
           <input type="text" id="authName" placeholder="Enter display name" style="width: 100%;">
         </div>
 
+        <!-- Role Selection Field (Sign-up only) -->
+        <div class="form-group" id="authRoleGroup" style="display: none; margin-bottom: 16px;">
+          <label for="authRole">Your Role</label>
+          <select id="authRole" style="width: 100%;">
+            <option value="manager" selected>👑 Manager (Create & Administer Projects)</option>
+            <option value="employee">👤 Employee (Collaborate & Contribute)</option>
+          </select>
+        </div>
+
         <!-- Email Field -->
         <div class="form-group" style="margin-bottom: 16px;">
           <label for="authEmail" id="authEmailLabel">Email address or user name</label>
@@ -396,6 +405,23 @@
       <div class="dialog-actions">
         <button class="ghost-btn" id="customConfirmCancelBtn">Cancel</button>
         <button class="primary-btn" id="customConfirmSubmitBtn">Confirm</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Role Selection Dialog for First-Time Google Users -->
+  <dialog id="roleSelectionDialog" class="dialog-xs">
+    <div class="dialog-card">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">First-time Setup</span>
+          <h2>Select Your Role</h2>
+        </div>
+      </div>
+      <p style="margin: 0 0 20px; color: var(--ink-2); font-size: 13.5px; line-height: 1.5;">Please select your role to configure your workspace. This choice determines your access rights.</p>
+      <div class="dialog-actions" style="display: grid; grid-template-columns: 1fr; gap: 10px;">
+        <button type="button" class="primary-btn" id="chooseManagerBtn" style="padding: 14px; font-size: 13px;">👑 Manager</button>
+        <button type="button" class="ghost-btn" id="chooseEmployeeBtn" style="padding: 14px; font-size: 13px; border: 1px solid var(--glass-border);">👤 Employee</button>
       </div>
     </div>
   </dialog>
