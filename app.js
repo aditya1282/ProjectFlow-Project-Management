@@ -10,7 +10,7 @@ let selectedProjectId = "";
 let editingProjectId = null;
 let quickMode = "update";
 let currentUser = null;
-let jwtToken = localStorage.getItem("projectflow-jwt") || null;
+let authMode = "login";
 
 const els = {
   searchInput: document.querySelector("#searchInput"),
@@ -47,94 +47,141 @@ const els = {
   confirmForm: document.querySelector("#confirmForm")
 };
 
-// API Call Wrapper with Authorization header
-async function apiCall(endpoint, method = 'GET', body = null) {
-  const headers = {
-    'Content-Type': 'application/json'
-  };
-  if (jwtToken) {
-    headers['Authorization'] = `Bearer ${jwtToken}`;
-  }
-  
-  const options = { method, headers };
-  if (body) {
-    options.body = JSON.stringify(body);
-  }
+// ============================================================
+// Custom Notification and Dialog Systems
+// ============================================================
 
-  try {
-    const res = await fetch(endpoint, options);
-    if (res.status === 401 || res.status === 403) {
-      handleLogout();
-      throw new Error("Session expired or unauthorized. Please log in again.");
+// Custom toast notification system
+function showToast(title, message, type = "info") {
+  const container = document.getElementById("toastContainer");
+  if (!container) return;
+
+  const toast = document.createElement("div");
+  toast.className = `toast ${type}`;
+  
+  const icon = {
+    success: "✓",
+    error: "✕",
+    warning: "⚠",
+    info: "ℹ"
+  }[type] || "ℹ";
+
+  toast.innerHTML = `
+    <div class="toast-icon">${icon}</div>
+    <div class="toast-content">
+      <div class="toast-title">${title}</div>
+      <div class="toast-message">${message}</div>
+    </div>
+    <button class="toast-close" type="button">✕</button>
+    <div class="toast-progress"></div>
+  `;
+
+  container.appendChild(toast);
+
+  // Trigger CSS entry animation
+  setTimeout(() => toast.classList.add("show"), 10);
+
+  // Bind close action
+  toast.querySelector(".toast-close").addEventListener("click", () => {
+    toast.classList.remove("show");
+    setTimeout(() => toast.remove(), 400);
+  });
+
+  // Animate progress bar scale down
+  const progress = toast.querySelector(".toast-progress");
+  progress.style.transition = "transform 4s linear";
+  progress.style.transform = "scaleX(1)";
+  setTimeout(() => {
+    progress.style.transform = "scaleX(0)";
+  }, 50);
+
+  // Auto remove toast
+  setTimeout(() => {
+    if (toast.parentNode) {
+      toast.classList.remove("show");
+      setTimeout(() => toast.remove(), 400);
     }
-    if (!res.ok) {
-      const errData = await res.json();
-      throw new Error(errData.error || `API Error: ${res.statusText}`);
-    }
-    return await res.json();
-  } catch (err) {
-    console.error("API Call error:", err.message);
-    alert(err.message);
-    throw err;
-  }
+  }, 4000);
 }
 
-// Fetch all accessible projects from server
-async function fetchProjects() {
-  try {
-    const data = await apiCall('/api/projects');
-    projects = data;
-    if (projects.length > 0) {
-      // Retain selection if valid, otherwise select the first project
-      if (!selectedProjectId || !projects.some(p => p.id === selectedProjectId)) {
-        selectedProjectId = projects[0].id;
+// Custom confirmation dialog system (returns a Promise)
+function showCustomConfirm(title, message, eyebrow = "Action Required") {
+  return new Promise((resolve) => {
+    const dialog = document.getElementById("customConfirmDialog");
+    const titleEl = document.getElementById("customConfirmTitle");
+    const msgEl = document.getElementById("customConfirmMessage");
+    const eyebrowEl = document.getElementById("customConfirmEyebrow");
+    
+    const cancelBtn = document.getElementById("customConfirmCancelBtn");
+    const submitBtn = document.getElementById("customConfirmSubmitBtn");
+    const closeBtn = document.getElementById("customConfirmCloseBtn");
+
+    titleEl.textContent = title;
+    msgEl.textContent = message;
+    eyebrowEl.textContent = eyebrow;
+
+    const cleanup = (value) => {
+      dialog.close();
+      submitBtn.onclick = null;
+      cancelBtn.onclick = null;
+      closeBtn.onclick = null;
+      resolve(value);
+    };
+
+    submitBtn.onclick = () => cleanup(true);
+    cancelBtn.onclick = () => cleanup(false);
+    closeBtn.onclick = () => cleanup(false);
+
+    dialog.showModal();
+  });
+}
+
+function showFirebaseSetupGuide() {
+  document.getElementById("setupGuideDialog").showModal();
+}
+
+// ============================================================
+// Real-time Database Listeners
+// ============================================================
+function setupRealtimeProjects() {
+  // Clear any existing listeners
+  if (window.projectsUnsubscribe) {
+    window.projectsUnsubscribe();
+  }
+
+  // Set up live Firestore listener
+  window.projectsUnsubscribe = window.db.collection('projects')
+    .onSnapshot((snapshot) => {
+      const allProjects = [];
+      snapshot.forEach(doc => {
+        allProjects.push({ id: doc.id, ...doc.data() });
+      });
+
+      // Role Access Enforcement: Filter projects client-side
+      projects = allProjects.filter(p => 
+        p.ownerId === currentUser.id || 
+        p.ownerEmail?.toLowerCase() === currentUser.email.toLowerCase() || 
+        (p.members && p.members.map(m => m.toLowerCase()).includes(currentUser.email.toLowerCase()))
+      );
+
+      if (projects.length > 0) {
+        if (!selectedProjectId || !projects.some(p => p.id === selectedProjectId)) {
+          selectedProjectId = projects[0].id;
+        }
+      } else {
+        selectedProjectId = "";
       }
-    } else {
-      selectedProjectId = "";
-    }
-    render();
-  } catch (err) {
-    console.error("Error fetching projects:", err);
-  }
+
+      render();
+    }, (err) => {
+      console.error("Firestore subscription error:", err);
+      showToast("Sync Offline", "Could not fetch projects from database.", "error");
+    });
 }
 
-// Authentication Handlers
-function handleLoginSuccess(token, user) {
-  jwtToken = token;
-  currentUser = user;
-  localStorage.setItem("projectflow-jwt", token);
-  localStorage.setItem("projectflow-user", JSON.stringify(user));
-  
-  // Update user profile block in sidebar
-  document.querySelector("#userName").textContent = user.name;
-  document.querySelector("#userEmail").textContent = user.email;
-  document.querySelector("#userAvatar").src = user.picture || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user.name)}`;
-  
-  // Transition views
-  document.querySelector("#loginScreen").style.display = "none";
-  document.querySelector("#appShell").style.display = "grid";
-
-  // Load backend content
-  fetchProjects();
-}
-
-function handleLogout() {
-  jwtToken = null;
-  currentUser = null;
-  localStorage.removeItem("projectflow-jwt");
-  localStorage.removeItem("projectflow-user");
-  
-  // Transition views
-  document.querySelector("#appShell").style.display = "none";
-  document.querySelector("#loginScreen").style.display = "flex";
-  
-  projects = [];
-  selectedProjectId = "";
-  render();
-}
-
-// Authentication state and toggles
-let authMode = "login";
+// ============================================================
+// Authentication Lifecycles & Handlers
+// ============================================================
 
 function setAuthMode(mode) {
   authMode = mode;
@@ -171,36 +218,53 @@ function setAuthMode(mode) {
   }
 }
 
-// Google Sign-In Callback
-async function handleCredentialResponse(response) {
-  try {
-    const res = await apiCall('/api/auth/google', 'POST', { credential: response.credential });
-    handleLoginSuccess(res.token, res.user);
-  } catch (err) {
-    console.error("Google login authentication failed:", err);
-  }
-}
+// Initialize Auth listeners and buttons
+function initAuth() {
+  // Bind Setup Guide triggers
+  document.getElementById("setupGuideBtn").addEventListener("click", showFirebaseSetupGuide);
 
-// Initialize Auth configurations
-async function initAuth() {
-  const storedUser = localStorage.getItem("projectflow-user");
-  if (jwtToken && storedUser) {
-    try {
-      currentUser = JSON.parse(storedUser);
+  // Show banner if running in local LocalStorage fallback mode
+  if (!window.firebaseConfigured) {
+    document.getElementById("firebaseConfigBanner").style.display = "flex";
+  }
+
+  // Register state change listener
+  window.auth.onAuthStateChanged((user) => {
+    if (user) {
+      currentUser = {
+        id: user.uid,
+        email: user.email,
+        name: user.displayName || user.email.split('@')[0],
+        picture: user.photoURL || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user.email.split('@')[0])}`
+      };
+      
+      // Update DOM UI profile
       document.querySelector("#userName").textContent = currentUser.name;
       document.querySelector("#userEmail").textContent = currentUser.email;
-      document.querySelector("#userAvatar").src = currentUser.picture || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(currentUser.name)}`;
+      document.querySelector("#userAvatar").src = currentUser.picture;
       
+      // View Transition
       document.querySelector("#loginScreen").style.display = "none";
       document.querySelector("#appShell").style.display = "grid";
+
+      // Initialize database listener
+      setupRealtimeProjects();
+    } else {
+      currentUser = null;
+      if (window.projectsUnsubscribe) {
+        window.projectsUnsubscribe();
+        window.projectsUnsubscribe = null;
+      }
       
-      await fetchProjects();
-    } catch (err) {
-      handleLogout();
+      // View Transition back to auth
+      document.querySelector("#appShell").style.display = "none";
+      document.querySelector("#loginScreen").style.display = "flex";
+      
+      projects = [];
+      selectedProjectId = "";
+      render();
     }
-  } else {
-    handleLogout();
-  }
+  });
 
   // Toggle Mode Click
   document.querySelector("#authToggleMode").addEventListener("click", (e) => {
@@ -217,7 +281,7 @@ async function initAuth() {
     }
   });
 
-  // Password visibility Show/Hide Toggle
+  // Show/Hide password toggle
   document.querySelector("#togglePasswordBtn").addEventListener("click", () => {
     const pwdInput = document.querySelector("#authPassword");
     const toggleBtn = document.querySelector("#togglePasswordBtn");
@@ -230,7 +294,7 @@ async function initAuth() {
     }
   });
 
-  // Form Submit Handler (unified signup and login)
+  // Auth Form Submit
   document.querySelector("#authForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const email = document.querySelector("#authEmail").value.trim();
@@ -239,58 +303,98 @@ async function initAuth() {
     try {
       if (authMode === "signup") {
         const name = document.querySelector("#authName").value.trim();
-        const res = await apiCall('/api/auth/signup', 'POST', { email, password, name });
-        handleLoginSuccess(res.token, res.user);
+        const cred = await window.auth.createUserWithEmailAndPassword(email, password);
+        await cred.user.updateProfile({ displayName: name });
+        showToast("Account Created", `Welcome, ${name}!`, "success");
       } else {
-        const res = await apiCall('/api/auth/login', 'POST', { email, password });
-        handleLoginSuccess(res.token, res.user);
+        await window.auth.signInWithEmailAndPassword(email, password);
+        showToast("Logged In", "Welcome back to ProjectFlow!", "success");
       }
     } catch (err) {
       console.error("Auth action failed:", err);
+      showToast("Access Denied", err.message || "Authentication failed. Check your password.", "error");
     }
   });
 
-  // Bind Logout Action
-  document.querySelector("#logoutBtn").addEventListener("click", handleLogout);
+  // Bind Sign Out
+  document.querySelector("#logoutBtn").addEventListener("click", () => {
+    window.auth.signOut().then(() => {
+      showToast("Signed Out", "You have been logged out safely.", "info");
+    });
+  });
 
-  // Bind Quick Demo Access Link
+  // Bind Quick Demo Access
   document.querySelector("#demoQuickLoginLink").addEventListener("click", async (e) => {
     e.preventDefault();
     try {
-      const res = await apiCall('/api/auth/mock', 'POST', { 
-        email: "manager@example.com", 
-        name: "Aditya Sharma" 
-      });
-      handleLoginSuccess(res.token, res.user);
+      if (!window.firebaseConfigured) {
+        // Direct mock login
+        const mockAuth = window.auth;
+        mockAuth._trigger({
+          uid: 'mock-manager-id',
+          email: 'manager@example.com',
+          displayName: 'Aditya Sharma',
+          photoURL: 'https://api.dicebear.com/7.x/initials/svg?seed=Aditya%20Sharma'
+        });
+        showToast("Demo Manager Mode", "Signed in as Aditya Sharma.", "success");
+      } else {
+        // Firebase Auth credentials sign-in/registration
+        try {
+          await window.auth.signInWithEmailAndPassword('demo@projectflow.com', 'demo1234');
+          showToast("Demo Logged In", "Signed in with cloud demo credentials.", "success");
+        } catch (err) {
+          if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
+            // Auto register the user in Firebase project
+            const cred = await window.auth.createUserWithEmailAndPassword('demo@projectflow.com', 'demo1234');
+            await cred.user.updateProfile({ displayName: 'Demo Manager' });
+            showToast("Demo Environment Configured", "Registered and signed in.", "success");
+          } else {
+            throw err;
+          }
+        }
+      }
     } catch (err) {
       console.error("Demo login failed:", err);
+      showToast("Demo Access Offline", err.message || "Could not log into demo mode.", "error");
     }
   });
 
-  // Initialize Google Identity Services
-  try {
-    const config = await (await fetch('/api/auth/config')).json();
-    if (config.googleClientId && typeof google !== 'undefined') {
-      google.accounts.id.initialize({
-        client_id: config.googleClientId,
-        callback: handleCredentialResponse
-      });
-      
-      // Render official Google button overlayed inside G wrapper
-      google.accounts.id.renderButton(
-        document.getElementById("googleBtn"),
-        { theme: "outline", size: "large", type: "icon", shape: "circle" }
-      );
-    } else {
-      // If client ID is missing, Google OAuth will alert when clicked
-      document.getElementById("googleBtn").addEventListener("click", () => {
-        alert("Google Client ID is not configured on the server. Please use standard credentials or Demo User.");
-      });
+  // Bind Google Authentication
+  document.querySelector("#googleSignInBtn").addEventListener("click", async () => {
+    try {
+      if (!window.firebaseConfigured) {
+        // Fallback popup simulator
+        await window.auth.signInWithPopup(null);
+        showToast("Google Mode Enabled", "Logged in using mock credentials.", "success");
+      } else {
+        const provider = new firebase.auth.GoogleAuthProvider();
+        await window.auth.signInWithPopup(provider);
+        showToast("Verified Account", "Authenticated via Google Cloud successfully.", "success");
+      }
+    } catch (err) {
+      console.error("Google Sign-In failed:", err);
+      if (err.code === 'auth/configuration-not-found' || err.message?.includes('configuration-not-found')) {
+        showCustomConfirm(
+          "Google provider is not enabled in your Firebase Project Console. To activate it: 1) Go to the Firebase Console. 2) Under Authentication > Sign-in method, click 'Add new provider'. 3) Select Google, toggle 'Enable', choose your support email, and save.",
+          "Enable Google Sign-In in Firebase Console to use this feature.",
+          "Firebase Admin Action Required"
+        );
+      } else if (err.code === 'auth/unauthorized-domain' || err.message?.includes('unauthorized-domain')) {
+        showCustomConfirm(
+          `This domain (${window.location.hostname}) is not authorized for OAuth in your Firebase project. To resolve: 1) Open the app via http://localhost:3000/ (which is authorized by default) instead of 127.0.0.1. 2) Or go to Firebase Console > Authentication > Settings > Authorized domains, and add "${window.location.hostname}" to the list.`,
+          "Authorize this domain in Firebase Console to use Google Sign-In.",
+          "Firebase Domain Authorization Required"
+        );
+      } else {
+        showToast("Google Login Cancelled", err.message || "Action was cancelled.", "error");
+      }
     }
-  } catch (err) {
-    console.error("Failed to retrieve Google Auth config:", err);
-  }
+  });
 }
+
+// ============================================================
+// Core Dashboard Helpers and Rendering Engine
+// ============================================================
 
 function getSelectedProject() {
   return projects.find((p) => p.id === selectedProjectId) || projects[0];
@@ -307,6 +411,7 @@ function getVisibleProjects() {
 }
 
 function formatDate(value) {
+  if (!value) return "N/A";
   return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
 }
 
@@ -395,15 +500,14 @@ function renderDetails(project) {
     return;
   }
 
-  // Role Access Evaluation: Owner checks
+  // Owner evaluation check
   const isOwner = currentUser && (project.ownerId === currentUser.id || project.ownerEmail?.toLowerCase() === currentUser.email?.toLowerCase());
 
   if (els.editProjectBtn) els.editProjectBtn.style.display = isOwner ? "" : "none";
   if (els.deleteProjectBtn) els.deleteProjectBtn.style.display = isOwner ? "" : "none";
 
-  // Members section is shown to all members
+  // Show member module to all assigned participants
   document.querySelector("#projectCollaborationSection").style.display = "";
-  // Invite inputs are Manager-only
   document.querySelector("#addMemberForm").style.display = isOwner ? "flex" : "none";
 
   const remaining = daysUntil(project.due);
@@ -487,7 +591,7 @@ function renderKanban(project) {
   }
   const dotClass = { "Backlog": "backlog", "In Progress": "inprogress", "Done": "done" };
   els.kanbanBoard.innerHTML = taskStatuses.map((status) => {
-    const tasks = project.tasks.filter((t) => t.status === status);
+    const tasks = (project.tasks || []).filter((t) => t.status === status);
     return `
       <div class="column">
         <h3><span class="col-dot ${dotClass[status]}"></span>${status}</h3>
@@ -519,7 +623,7 @@ function renderUpdates(project) {
     els.updatesList.innerHTML = `<div class="empty-state">No project selected</div>`;
     return;
   }
-  const updates = [...project.updates].sort((a, b) => new Date(b.date) - new Date(a.date));
+  const updates = [...(project.updates || [])].sort((a, b) => new Date(b.date) - new Date(a.date));
   els.updatesList.innerHTML = updates.length
     ? updates.map((u, i) => `
       <div class="update-item" style="animation-delay:${i*0.05}s">
@@ -530,11 +634,14 @@ function renderUpdates(project) {
     : `<div class="empty-state">No updates yet.</div>`;
 }
 
+// ============================================================
+// Interactive Form and Dialog Control Actions
+// ============================================================
+
 function openProjectDialog(project) {
   editingProjectId = project?.id || null;
   els.dialogTitle.textContent = project ? "Edit Project" : "New Project";
   els.projectName.value = project?.name || "";
-  // Owner display name is automatically set on server
   els.projectOwner.value = project?.owner || currentUser?.name || "";
   els.projectStage.value = project?.stage || "Planning";
   els.projectPriority.value = project?.priority || "Medium";
@@ -560,15 +667,34 @@ async function handleProjectSave(event) {
 
   try {
     if (editingProjectId) {
-      await apiCall(`/api/projects/${editingProjectId}`, 'PUT', data);
+      window.db.collection('projects').doc(editingProjectId).update(data).catch(err => {
+        console.error("Delayed update failed:", err);
+        showToast("Sync Error", "Failed to sync updates to the cloud.", "error");
+      });
+      showToast("Success", `"${data.name}" has been modified successfully.`, "success");
     } else {
-      const newProj = await apiCall('/api/projects', 'POST', data);
-      selectedProjectId = newProj.id;
+      const newProj = {
+        ...data,
+        ownerId: currentUser.id,
+        ownerEmail: currentUser.email,
+        tasks: [],
+        updates: [
+          { id: generateId(), text: `Project initialized by ${currentUser.name}.`, date: today() }
+        ],
+        members: []
+      };
+      window.db.collection('projects').add(newProj).then(docRef => {
+        selectedProjectId = docRef.id;
+      }).catch(err => {
+        console.error("Delayed creation failed:", err);
+        showToast("Sync Error", "Failed to sync project creation to the cloud.", "error");
+      });
+      showToast("Success", `"${data.name}" has been created.`, "success");
     }
     els.projectDialog.close();
-    await fetchProjects();
   } catch (err) {
     console.error("Save project failed:", err);
+    showToast("Error", "Unable to save project data.", "error");
   }
 }
 
@@ -587,17 +713,40 @@ async function handleQuickSave(event) {
   if (event.submitter?.value === "cancel") { els.quickDialog.close(); return; }
   if (!selectedProjectId) return;
   const text = els.quickText.value.trim();
+  const selected = getSelectedProject();
+  if (!selected) return;
 
   try {
     if (quickMode === "task") {
-      await apiCall(`/api/projects/${selectedProjectId}/tasks`, 'POST', { title: text });
+      const newTask = { id: `t-${generateId()}`, title: text, status: 'Backlog' };
+      const updatedTasks = [newTask, ...(selected.tasks || [])];
+      const updatedUpdates = [
+        { id: generateId(), text: `Task added: "${text}" (by ${currentUser.name})`, date: today() },
+        ...(selected.updates || [])
+      ];
+      window.db.collection('projects').doc(selectedProjectId).update({
+        tasks: updatedTasks,
+        updates: updatedUpdates
+      }).catch(err => {
+        console.error("Delayed task add failed:", err);
+        showToast("Sync Error", "Failed to sync task to the cloud.", "error");
+      });
+      showToast("Task Created", `"${text}" was added to backlog.`, "success");
     } else {
-      await apiCall(`/api/projects/${selectedProjectId}/updates`, 'POST', { text });
+      const newUpdate = { id: `u-${generateId()}`, text: `${text} (by ${currentUser.name})`, date: today() };
+      const updatedUpdates = [newUpdate, ...(selected.updates || [])];
+      window.db.collection('projects').doc(selectedProjectId).update({
+        updates: updatedUpdates
+      }).catch(err => {
+        console.error("Delayed log add failed:", err);
+        showToast("Sync Error", "Failed to sync update to the cloud.", "error");
+      });
+      showToast("Log Added", "Update logged successfully.", "success");
     }
     els.quickDialog.close();
-    await fetchProjects();
   } catch (err) {
     console.error("Quick save failed:", err);
+    showToast("Error", "Could not complete update.", "error");
   }
 }
 
@@ -607,28 +756,58 @@ async function advanceSelectedStage() {
   const current = stages.indexOf(selected.stage);
   const nextStage = stages[Math.min(current + 1, stages.length - 1)];
 
+  if (nextStage === selected.stage) {
+    showToast("Info", "This project is already in its final maintenance phase.", "info");
+    return;
+  }
+
   try {
-    await apiCall(`/api/projects/${selected.id}`, 'PUT', { stage: nextStage });
-    await fetchProjects();
+    const updatedUpdates = [
+      { id: generateId(), text: `SDLC stage advanced from "${selected.stage}" to "${nextStage}" (by ${currentUser.name})`, date: today() },
+      ...(selected.updates || [])
+    ];
+    await window.db.collection('projects').doc(selected.id).update({
+      stage: nextStage,
+      updates: updatedUpdates
+    });
+    showToast("Stage Updated", `Moved to "${nextStage}" stage.`, "success");
   } catch (err) {
     console.error("Advance stage failed:", err);
+    showToast("Error", "Could not update SDLC stage.", "error");
   }
 }
 
 async function moveTask(taskId, direction) {
   const project = getSelectedProject();
   if (!project) return;
-  const task = project.tasks.find((t) => t.id === taskId);
+  const task = (project.tasks || []).find((t) => t.id === taskId);
   if (!task) return;
   const index = taskStatuses.indexOf(task.status);
   const next = direction === "next" ? index + 1 : index - 1;
   const nextStatus = taskStatuses[Math.max(0, Math.min(taskStatuses.length - 1, next))];
+  
+  if (nextStatus === task.status) return;
+
+  const oldStatus = task.status;
+  task.status = nextStatus;
+
+  const updatedUpdates = [
+    {
+      id: generateId(),
+      text: `Moved task "${task.title}" from "${oldStatus}" to "${nextStatus}" (by ${currentUser.name})`,
+      date: today()
+    },
+    ...(project.updates || [])
+  ];
 
   try {
-    await apiCall(`/api/projects/${project.id}/tasks/${taskId}`, 'PUT', { status: nextStatus });
-    await fetchProjects();
+    await window.db.collection('projects').doc(project.id).update({
+      tasks: project.tasks,
+      updates: updatedUpdates
+    });
   } catch (err) {
     console.error("Move task failed:", err);
+    showToast("Error", "Could not relocate task status.", "error");
   }
 }
 
@@ -663,7 +842,7 @@ function escapeHtml(v) {
     .replaceAll("'", "&#039;");
 }
 
-// Init stage options
+// Populate Stage Filter and Select Fields
 stages.forEach((stage) => {
   const opt = document.createElement("option");
   opt.value = stage;
@@ -671,20 +850,28 @@ stages.forEach((stage) => {
   els.projectStage.append(opt);
 });
 
-// Events
+// ============================================================
+// Event Binding Operations
+// ============================================================
+
 document.querySelector("#newProjectBtn").addEventListener("click", () => openProjectDialog());
 document.querySelector("#editProjectBtn").addEventListener("click", () => openProjectDialog(getSelectedProject()));
 document.querySelector("#deleteProjectBtn").addEventListener("click", deleteSelectedProject);
 
-els.confirmForm.addEventListener("submit", async (event) => {
+els.confirmForm.addEventListener("submit", (event) => {
   if (event.submitter?.value === "delete") {
     if (selectedProjectId) {
       try {
-        await apiCall(`/api/projects/${selectedProjectId}`, 'DELETE');
+        const pName = getSelectedProject()?.name || "Project";
+        window.db.collection('projects').doc(selectedProjectId).delete().catch(err => {
+          console.error("Delayed delete failed:", err);
+          showToast("Sync Error", "Failed to sync delete to the cloud.", "error");
+        });
         selectedProjectId = "";
-        await fetchProjects();
+        showToast("Project Deleted", `"${pName}" has been deleted.`, "success");
       } catch (err) {
         console.error("Delete project failed:", err);
+        showToast("Error", "Failed to delete project.", "error");
       }
     }
   }
@@ -714,18 +901,44 @@ els.kanbanBoard.addEventListener("click", (event) => {
   moveTask(card.dataset.taskId, action.dataset.taskAction);
 });
 
-// Member Collaboration Events
+// Member Collaboration Event Bindings
 document.querySelector("#addMemberForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   if (!selectedProjectId) return;
   const emailInput = document.querySelector("#newMemberEmail");
-  const email = emailInput.value.trim();
+  const email = emailInput.value.trim().toLowerCase();
+  const selected = getSelectedProject();
+  if (!selected) return;
+
+  if (selected.ownerEmail?.toLowerCase() === email) {
+    showToast("Invalid Invitation", "The project owner cannot be invited as an employee.", "warning");
+    return;
+  }
+  if (selected.members && selected.members.map(m => m.toLowerCase()).includes(email)) {
+    showToast("Already Assigned", "Employee is already assigned to this project.", "info");
+    return;
+  }
+
+  const updatedMembers = [...(selected.members || []), email];
+  const updatedUpdates = [
+    {
+      id: generateId(),
+      text: `Assigned employee "${email}" to the project.`,
+      date: today()
+    },
+    ...(selected.updates || [])
+  ];
+
   try {
-    await apiCall(`/api/projects/${selectedProjectId}/members`, 'PUT', { email });
+    await window.db.collection('projects').doc(selectedProjectId).update({
+      members: updatedMembers,
+      updates: updatedUpdates
+    });
     emailInput.value = "";
-    await fetchProjects();
+    showToast("Member Added", `Added ${email} to project dashboard.`, "success");
   } catch (err) {
     console.error("Failed to add member:", err);
+    showToast("Error", "Could not assign member to project.", "error");
   }
 });
 
@@ -733,15 +946,39 @@ document.querySelector("#projectMembersList").addEventListener("click", async (e
   const removeBtn = e.target.closest(".remove-member-btn");
   if (!removeBtn || !selectedProjectId) return;
   const email = removeBtn.dataset.memberEmail;
-  if (confirm(`Remove employee ${email} from this project?`)) {
+  const selected = getSelectedProject();
+  if (!selected) return;
+
+  // Use the new custom confirm dialog instead of standard browser confirm popup!
+  const confirmed = await showCustomConfirm(
+    "Remove Member",
+    `Are you sure you want to remove employee "${email}" from this project?`,
+    "Collaboration"
+  );
+  
+  if (confirmed) {
+    const updatedMembers = (selected.members || []).filter(m => m.toLowerCase() !== email.toLowerCase());
+    const updatedUpdates = [
+      {
+        id: generateId(),
+        text: `Removed employee "${email}" from the project.`,
+        date: today()
+      },
+      ...(selected.updates || [])
+    ];
+
     try {
-      await apiCall(`/api/projects/${selectedProjectId}/members`, 'DELETE', { email });
-      await fetchProjects();
+      await window.db.collection('projects').doc(selectedProjectId).update({
+        members: updatedMembers,
+        updates: updatedUpdates
+      });
+      showToast("Member Removed", `Removed ${email} from project dashboard.`, "success");
     } catch (err) {
       console.error("Failed to remove member:", err);
+      showToast("Error", "Could not remove member.", "error");
     }
   }
 });
 
-// Start Authentication lifecycle
+// Start Authentication Lifecycle
 initAuth();

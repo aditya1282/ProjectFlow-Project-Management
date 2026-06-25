@@ -6,8 +6,10 @@
   <title>ProjectFlow — SDLC Command Center</title>
   <meta name="description" content="ProjectFlow is a modern project management dashboard for tracking SDLC stages, tasks, and team progress in real time.">
   <link rel="stylesheet" href="styles.css">
-  <!-- Google Identity Services -->
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <!-- Firebase SDK (compat) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 </head>
 <body>
   <!-- Login Screen Overlay -->
@@ -88,10 +90,9 @@
         <button type="button" class="social-btn apple-btn" title="Continue with Apple" style="width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--glass-border); background: var(--surface); color: var(--ink-2); display: flex; align-items: center; justify-content: center; transition: var(--transition);">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 4.17c.66-.81 1.11-1.93.99-3.06-1 .04-2.22.67-2.94 1.5-.64.73-1.2 1.87-1.05 2.97 1.1.09 2.24-.6 3-1.41z"/></svg>
         </button>
-        <div class="social-btn google-btn-wrapper" title="Continue with Google" style="width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--glass-border); background: var(--surface); color: var(--ink-2); display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer; transition: var(--transition);">
+        <button type="button" class="social-btn google-btn" id="googleSignInBtn" title="Continue with Google" style="width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--glass-border); background: var(--surface); color: var(--ink-2); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: var(--transition);">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12.24 10.285V14.4h6.887c-.648 2.41-2.519 4.113-5.136 4.113-3.48 0-6.3-2.82-6.3-6.3s2.82-6.3 6.3-6.3c1.554 0 2.969.57 4.062 1.5L21.1 4.5A11.892 11.892 0 0012.24 0C5.58 0 0 5.58 0 12.24s5.58 12.24 12.24 12.24c6.887 0 12.24-5.353 12.24-12.24 0-.785-.062-1.555-.18-2.28H12.24z"/></svg>
-          <div id="googleBtn" class="google-iframe-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; z-index: 10; overflow: hidden; border-radius: 50%; cursor: pointer;"></div>
-        </div>
+        </button>
         <button type="button" class="social-btn twitter-btn" title="Continue with Twitter" style="width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--glass-border); background: var(--surface); color: var(--ink-2); display: flex; align-items: center; justify-content: center; transition: var(--transition);">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
         </button>
@@ -146,6 +147,14 @@
     </aside>
 
     <main class="main">
+      <!-- Firebase Offline Warning Banner -->
+      <div id="firebaseConfigBanner" class="firebase-banner" style="display: none;">
+        <div>
+          <span>⚡ <strong>Offline Demo Mode</strong> — Firebase API keys in <code>firebase-config.js</code> are placeholders. Data is saved locally.</span>
+        </div>
+        <button type="button" class="firebase-banner-btn" id="setupGuideBtn">Setup Guide</button>
+      </div>
+
       <header class="topbar">
         <div>
           <span class="eyebrow">Portfolio workspace</span>
@@ -343,6 +352,58 @@
     </form>
   </dialog>
 
+  <!-- Firebase Setup Guide Dialog -->
+  <dialog id="setupGuideDialog" class="dialog-sm">
+    <form method="dialog" class="dialog-card">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Cloud Database Setup</span>
+          <h2>Connect Real Firebase</h2>
+        </div>
+        <button class="icon-btn" value="close" aria-label="Close" type="submit" formnovalidate>✕</button>
+      </div>
+      <div style="font-size: 13.5px; color: var(--ink-2); display: grid; gap: 14px; line-height: 1.6;">
+        <p style="margin:0;">To sync this project with the cloud in real-time, follow these quick steps:</p>
+        <ol style="margin: 0; padding-left: 20px; display: grid; gap: 10px;">
+          <li>Go to the <a href="https://console.firebase.google.com/" target="_blank" style="color: var(--accent); text-decoration: underline;">Firebase Console</a> and create a project.</li>
+          <li>Register a new <strong>Web App</strong> inside your Firebase project.</li>
+          <li>Copy the <code>firebaseConfig</code> object.</li>
+          <li>Open <code>firebase-config.js</code> in this codebase and paste your keys.</li>
+          <li>Enable <strong>Google Authentication</strong> and <strong>Email/Password</strong> in your Firebase Authentication settings.</li>
+          <li>Create a <strong>Cloud Firestore</strong> database in test mode (or configure appropriate read/write rules).</li>
+        </ol>
+        <p style="margin: 10px 0 0; color: var(--muted); font-size: 12px; background: rgba(255,255,255,0.03); padding: 10px; border-radius: var(--radius-sm); border: 1px solid var(--glass-border);">
+          Once keys are configured, this banner will automatically disappear and the app will switch to real-time cloud sync!
+        </p>
+      </div>
+      <div class="dialog-actions">
+        <button class="primary-btn" value="close" type="submit" style="width: 100%;">Done</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Reusable Custom Dialog Box for Confirmations -->
+  <dialog id="customConfirmDialog" class="dialog-xs">
+    <div class="dialog-card">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow" id="customConfirmEyebrow">Action Required</span>
+          <h2 id="customConfirmTitle">Are you sure?</h2>
+        </div>
+        <button class="icon-btn" id="customConfirmCloseBtn">✕</button>
+      </div>
+      <p id="customConfirmMessage" style="margin: 0 0 20px; color: var(--ink-2);"></p>
+      <div class="dialog-actions">
+        <button class="ghost-btn" id="customConfirmCancelBtn">Cancel</button>
+        <button class="primary-btn" id="customConfirmSubmitBtn">Confirm</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Toast Notifications Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script src="firebase-config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
